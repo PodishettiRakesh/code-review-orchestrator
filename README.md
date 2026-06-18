@@ -1,175 +1,213 @@
 # AI Multi-Agent Code Review Orchestrator
 
-A sophisticated multi-agent AI system for structured code reviews using LangGraph orchestration. This project demonstrates advanced AI automation by simulating specialized code reviewers (Code Quality, Security, Performance) in a coordinated workflow.
+Multi-agent AI system for structured code reviews using specialized agents and shared state. Each agent focuses on one concern—code quality, security, or performance—and an aggregator synthesizes the results into a structured JSON report.
 
-## 🎯 Project Overview
+> **Problem**: Single-prompt LLM reviews mix concerns, dilute context, and produce inconsistent output.  
+> **Approach**: Specialized agents with scoped prompts, shared state, and structured aggregation.
 
-This system implements a multi-agent orchestration pattern where each AI agent focuses on a specific aspect of code review:
+## Architecture
 
-- **Code Analyzer Agent**: Analyzes code structure, readability, and maintainability
-- **Security Agent**: Identifies security vulnerabilities and risks
-- **Performance Agent**: Detects performance bottlenecks and inefficiencies
-- **Aggregator Agent**: Combines all findings into a structured, actionable report
-
-## 🏗️ Architecture
+Instead of one prompt asking an LLM to review quality, security, and performance together, the pipeline decomposes work into focused agents:
 
 ```
-Input → Code Analyzer → Security Agent → Performance Agent → Aggregator Agent → Structured Review Output
+┌─────────────────────────────────────────────────────────────┐
+│ INPUT: code snippet (+ optional language)                    │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ CODE ANALYZER  → Readability, structure, complexity         │
+└────────────┬────────────────────────────────────────────────┘
+             │  ReviewState.analysis_notes
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ SECURITY AGENT → Injection, secrets, validation, auth risks │
+└────────────┬────────────────────────────────────────────────┘
+             │  ReviewState.security_findings
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ PERFORMANCE AGENT → Loops, memory, I/O, algorithmic issues  │
+└────────────┬────────────────────────────────────────────────┘
+             │  ReviewState.performance_issues
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ AGGREGATOR AGENT → Structured JSON report with severity     │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+        ReviewState.final_report
 ```
 
-**Why Multi-Agent?**
-- Separation of concerns for focused analysis
-- Reduced AI hallucination through scoped prompts
-- Extensible architecture for future agents
-- Deterministic state management with LangGraph
+| Aspect | Single prompt | Multi-agent |
+|--------|---------------|-------------|
+| Focus | Mixed concerns | One concern per agent |
+| Testability | Hard to isolate failures | Each node runnable on its own |
+| Extensibility | Prompt grows over time | New agents plug into the graph |
+| State | Implicit context | Explicit `ReviewState` fields |
 
-## 🚀 Current Implementation Status
+Agents are implemented as LangGraph-compatible nodes. Stages 1–6 invoke them sequentially; Stage 7 will wire them into a `StateGraph`.
 
-### ✅ Completed Stages
-- **Stage 1**: Environment Setup with Groq LLM integration
-- **Stage 2**: State Schema definition with `ReviewState` class
+## Technology Stack
 
-### 🚧 In Progress
-- **Stage 3-6**: Agent implementation (Code Analyzer, Security, Performance, Aggregator)
-- **Stage 7**: LangGraph workflow orchestration
-- **Stage 8**: FastAPI wrapper
-- **Stage 9**: React frontend dashboard
+### Implemented
 
-## 🛠️ Technology Stack
-
-### Backend
 - **Python 3.10+**
-- **LangGraph** - Multi-agent orchestration
-- **LangChain** - LLM integration framework
-- **Groq** - High-performance LLM API (free tier)
-- **FastAPI** - REST API framework
-- **Uvicorn** - ASGI server
+- **LangChain** + **langchain-groq** — LLM integration (Groq default)
+- **LangGraph** — in dependencies; workflow graph pending (Stage 7)
+- **python-dotenv** — environment configuration
 
-### LLM Provider
-- **Groq** - Uses Llama models for fast, cost-effective inference
-- Free tier with generous rate limits
-- Alternative: Google Gemini (configured in dependencies)
+### Planned
 
-## 📋 Setup Instructions
+- **FastAPI** + **Uvicorn** — REST API (Stage 8)
+- **React** — analysis UI (Stage 9)
 
-### Prerequisites
-- Python 3.10 or higher
-- Git
+## Implementation Status
 
-### Installation
+| Stage | Component | Status |
+|-------|-----------|--------|
+| 1 | LLM integration (Groq) | Complete |
+| 2 | Shared `ReviewState` schema | Complete |
+| 3 | Code Analyzer agent | Complete |
+| 4 | Security agent | Complete |
+| 5 | Performance agent | Complete |
+| 6 | Aggregator agent | Complete |
+| 7 | LangGraph `StateGraph` | Next |
+| 8 | FastAPI `POST /analyze` | Next |
+| 9 | React dashboard | Next |
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd code-review-orchestrator
-   ```
-
-2. **Create and activate virtual environment**
-   ```bash
-   python -m venv venv
-   
-   # Windows
-   venv\Scripts\activate
-   
-   # macOS/Linux
-   source venv/bin/activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-
-4. **Configure environment variables**
-   ```bash
-   # Copy the example environment file
-   cp .env.example .env
-   
-   # Edit .env and add your Groq API key
-   # Get a free key at: https://console.groq.com/keys
-   ```
-
-5. **Verify LLM connection**
-   ```bash
-   python backend/verify_llm.py
-   ```
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 code-review-orchestrator/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py          # App package initialization
-│   │   └── state.py             # ReviewState schema (Stage 2)
-│   ├── requirements.txt         # Python dependencies
-│   └── verify_llm.py           # LLM connection test (Stage 1)
-├── .env.example                 # Environment variables template
-├── .gitignore                   # Git ignore rules
-├── ProblemSTatement.txt         # Detailed project specification
-└── README.md                    # This file
+│   │   ├── __init__.py
+│   │   ├── llm.py                   # Groq LLM factory
+│   │   ├── state.py                 # ReviewState (TypedDict)
+│   │   └── agents/
+│   │       ├── code_analyzer.py
+│   │       ├── security_agent.py
+│   │       ├── performance_agent.py
+│   │       └── aggregator_agent.py
+│   ├── verify_llm.py                # Stage 1 smoke test
+│   ├── run_analyzer.py              # Code Analyzer only
+│   ├── run_security.py              # Analyzer → Security
+│   ├── run_performance.py           # Analyzer → Performance
+│   ├── run_aggregator.py            # Full pipeline (Stages 3–6)
+│   └── requirements.txt
+├── .env.example
+├── .gitignore
+├── ProblemSTatement.txt
+└── README.md
 ```
 
-## 🔧 Configuration
+## Quick Start
 
-### Environment Variables (.env)
-```env
-# Required
-GROQ_API_KEY=your_groq_api_key_here
+### Prerequisites
 
-# Optional
-GROQ_MODEL=llama-3.1-8b-instant
-```
+- Python 3.10+
+- Groq API key — [console.groq.com/keys](https://console.groq.com/keys)
 
-### Supported LLM Models
-- `llama-3.1-8b-instant` (default, fast)
-- `llama-3.1-70b-versatile` (more capable)
-- `mixtral-8x7b-32768` (multilingual)
-
-## 📖 Usage (Current State)
-
-Currently, you can verify the LLM connection:
+### Installation
 
 ```bash
+git clone <repository-url>
+cd code-review-orchestrator
+
+python -m venv venv
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
+
+pip install -r backend/requirements.txt
+
+cp .env.example .env
+# Add GROQ_API_KEY to .env
+
 python backend/verify_llm.py
 ```
 
-This will test your Groq API connection and confirm Stage 1 completion.
+### Run the pipeline
 
-## 🚧 Development Roadmap
+```bash
+# Full review (Analyzer → Security → Performance → Aggregator)
+python backend/run_aggregator.py
 
-### Next Steps
-1. **Implement Code Analyzer Agent** - Focus on code structure and quality
-2. **Implement Security Agent** - Identify vulnerabilities and security risks
-3. **Implement Performance Agent** - Detect performance issues
-4. **Create Aggregator Agent** - Combine findings into structured reports
-5. **Build LangGraph Workflow** - Orchestrate agent interactions
-6. **Develop FastAPI Endpoint** - Create `/analyze` endpoint
-7. **Build React Dashboard** - User interface for code submission and review display
+# Individual agents
+python backend/run_analyzer.py
+python backend/run_security.py
+python backend/run_performance.py
+```
 
-### Future Extensions
-- Parallel agent execution
-- GitHub API integration
-- Memory persistence with Redis
-- Local Ollama support
-- Additional specialized agents (Documentation, Testing, etc.)
+### Example output
 
-## 🤝 Contributing
+```json
+{
+  "summary": "Well-structured code with minor security concerns.",
+  "code_quality": {
+    "severity": "low",
+    "findings": "Function naming is clear, but missing docstrings."
+  },
+  "security": {
+    "severity": "high",
+    "findings": "SQL query concatenation detected. Use parameterized queries."
+  },
+  "performance": {
+    "severity": "medium",
+    "findings": "Nested loop may cause unnecessary work on large inputs."
+  }
+}
+```
 
-This project follows the staged implementation approach outlined in `ProblemSTatement.txt`. Each stage builds upon the previous one to demonstrate progressive development of a multi-agent AI system.
+## Configuration
 
-## 📚 Why This Approach
+```env
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=llama-3.1-8b-instant   # optional
+```
 
-**Interview Talking Points:**
-- **Multi-agent over single prompt**: Specialized focus reduces hallucination and improves accuracy
-- **LangGraph over sequential calls**: Deterministic state management, branching support, and maintainable orchestration
-- **State-driven architecture**: Enables complex workflows and future extensibility
-- **Separation of concerns**: Each agent has a single responsibility, making the system testable and maintainable
+Supported Groq models: `llama-3.1-8b-instant` (default), `llama-3.3-70b-versatile`, `mixtral-8x7b-32768`.
 
-## 📄 License
+## ReviewState
 
-This project is part of a portfolio demonstration for AI automation engineering capabilities.
+All agents read from and write to shared state:
 
----
+```python
+class ReviewState(TypedDict, total=False):
+    code_input: str           # Set by caller
+    language: str             # Optional hint (e.g. "python")
+    analysis_notes: str       # Written by Code Analyzer
+    security_findings: str    # Written by Security Agent
+    performance_issues: str   # Written by Performance Agent
+    final_report: str         # Written by Aggregator (JSON string)
+```
 
-**Status**: Stages 1-2 Complete | Ready for Agent Implementation
+| Field | Set by | Description |
+|-------|--------|-------------|
+| `code_input` | Caller | Code snippet to review |
+| `language` | Caller | Optional language hint |
+| `analysis_notes` | Code Analyzer | Structure, readability, complexity |
+| `security_findings` | Security Agent | Injection, secrets, validation |
+| `performance_issues` | Performance Agent | Loops, memory, blocking, complexity |
+| `final_report` | Aggregator | JSON with `summary` and per-category severity |
+
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Multi-agent | Scoped prompts reduce mixed or unfocused findings |
+| LangGraph | Deterministic orchestration and explicit state flow |
+| Groq default | Fast inference and a usable free tier for development |
+| JSON output | Structured, parseable reports for API and UI consumers |
+| TypedDict state | Lightweight shared schema, LangGraph-ready |
+
+## Roadmap
+
+1. **Stage 7** — Wire nodes into a LangGraph `StateGraph` with `graph.invoke()`
+2. **Stage 8** — FastAPI `POST /analyze` accepting code and optional language
+3. **Stage 9** — React dashboard for submission and report display
+
+Future: parallel agent execution, GitHub integration, Redis persistence, Ollama support, additional agents (docs, testing).
+
+## License
+
+Portfolio demonstration for AI automation engineering. Stages 1–6 are complete; Stages 7–9 are in progress.
